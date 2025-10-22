@@ -15,4 +15,14 @@ scroll = "0.12.0"
 tempfile = "3.10.1"
 zip = { version = "2.1.3", default-features = false, features = ["deflate", "time"] }
 
+atoi = "2.0.0"
+log = "0.4.22"
+memchr = "2.7.5"
 
+# [profile.release]
+# panic = "abort"
+# opt-level = "s"
+# codegen-units = 1
+# lto = true
+# strip = true 
+# debug = false

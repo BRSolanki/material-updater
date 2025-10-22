@@ -4,6 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod mtbin;
+use crate::mtbin::handle_lightmaps;
+
 use anyhow::Context;
 use clap::{
     builder::{
@@ -48,6 +51,7 @@ struct Options {
 // Hack for clap support
 #[derive(ValueEnum, Clone)]
 enum MVersion {
+	V1_21_110,
     V1_21_20,
     V1_20_80,
     V1_19_60,
@@ -56,10 +60,12 @@ enum MVersion {
 impl MVersion {
     const fn as_version(&self) -> MinecraftVersion {
         match self {
-            Self::V1_20_80 => MinecraftVersion::V1_20_80,
+            Self::V1_20_80 => MinecraftVersion::V1_21_20, // Attention!
             Self::V1_19_60 => MinecraftVersion::V1_19_60,
             Self::V1_18_30 => MinecraftVersion::V1_18_30,
-            Self::V1_21_20 => MinecraftVersion::V1_21_20,
+            Self::V1_21_20 => MinecraftVersion::V1_20_80, // Attention!
+            Self::V1_21_110 => MinecraftVersion::V1_21_110,
+
         }
     }
 }
@@ -76,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     let mcversion = match opts.target_version {
         Some(version) => version.as_version(),
         None => {
-            const STABLE_LATEST: MinecraftVersion = MinecraftVersion::V1_21_20;
+            const STABLE_LATEST: MinecraftVersion = MinecraftVersion::V1_21_110;
             println!(
                 "No target version specified, updating to latest stable: {}",
                 STABLE_LATEST
@@ -90,8 +96,10 @@ fn main() -> anyhow::Result<()> {
         let output_filename: PathBuf = match &opts.output {
             Some(output_name) => output_name.to_owned(),
             None => {
-                let auto_name = update_filename(&opts.file, &mcversion, ".material.bin")?;
-                println!("No output name specified, using {auto_name:?}");
+                let auto_name = opts.file.to_string().into();
+                println!("No output name specified, overwriting input file.");
+                // let auto_name = update_filename(&opts.file, &mcversion, ".material.bin")?;
+                // println!("No output name specified, using {auto_name:?}");
                 auto_name
             }
         };
@@ -159,6 +167,7 @@ fn update_filename(
         .with_context(|| "String does not contain expected postfix")?;
     Ok((stripped.to_string() + "_" + &version.to_string() + postfix).into())
 }
+
 fn file_update<R, W>(input: &mut R, output: &mut W, version: MinecraftVersion) -> anyhow::Result<()>
 where
     R: Read + Seek,
@@ -166,10 +175,17 @@ where
 {
     let mut data = Vec::new();
     let _read = input.read_to_end(&mut data)?;
-    let material = read_material(&data)?;
+    let mut material = read_material(&data)?;
+
+    if (material.name == "RenderChunk") && (version == MinecraftVersion::V1_21_110) 
+    {
+        handle_lightmaps(&mut material);
+    };
+
     material.write(output, version)?;
     Ok(())
 }
+
 fn zip_update<R, W>(
     input: &mut R,
     output: &mut W,
@@ -193,12 +209,18 @@ where
         print!("Processing file {}", style(file.name()).cyan());
         let mut data = Vec::with_capacity(file.size().try_into()?);
         file.read_to_end(&mut data)?;
-        let material = match read_material(&data) {
+        let mut material = match read_material(&data) {
             Ok(material) => material,
             Err(_) => {
                 anyhow::bail!("Material file {} is invalid for all versions", file.name());
             }
         };
+
+        if (material.name == "RenderChunk") && (version == MinecraftVersion::V1_21_110) 
+        {
+            handle_lightmaps(&mut material);
+        };
+
         let file_options = FileOptions::<ExtendedFileOptions>::default()
             .compression_level(compression_level.map(|v| v.into()));
         output_zip.start_file(file.name(), file_options)?;
